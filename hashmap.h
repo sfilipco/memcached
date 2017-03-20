@@ -36,7 +36,7 @@ struct hashmap_t {
 
     int64_t cas_index;
 
-    struct lru_node_t *lru_first, *lru_last;
+    struct lru_node_t *sentinel;
 };
 
 /**

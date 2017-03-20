@@ -24,7 +24,9 @@ hashmap_init(size_t memory_size)
 
     hashmap->cas_index = 1;
 
-    hashmap->lru_first = hashmap->lru_last = NULL;
+    hashmap->sentinel = malloc(sizeof(struct lru_node_t));
+    hashmap->sentinel->prev = hashmap->sentinel;
+    hashmap->sentinel->next = hashmap->sentinel;
 
     return hashmap;
 }
@@ -39,7 +41,23 @@ hash(char *key, size_t key_size, size_t table_size)
     {
         response = ((response << 5) + response) + key[i];
     }
-    return response % table_size;
+    return response & (table_size-1);
+}
+
+void
+lru_hook_node_before_sentinel(struct lru_node_t *node, struct lru_node_t *sentinel)
+{
+    node->next = sentinel;
+    node->prev = sentinel->prev;
+    sentinel->prev->next = node;
+    sentinel->prev = node;
+}
+
+void
+lru_remove_node_from_list(struct lru_node_t *node)
+{
+    node->prev->next = node->next;
+    node->next->prev = node->prev;
 }
 
 int64_t
@@ -57,24 +75,15 @@ hashmap_add(struct hashmap_t *hashmap, char *key, size_t key_size, char *value, 
 
     item->cas = hashmap->cas_index++;
 
-    size_t table_position = hash(key, key_size, hashmap->table_size);
-    struct hashmap_item_t *next = hashmap->table[table_position];
-    hashmap->table[table_position] = item;
+    size_t table_index = hash(key, key_size, hashmap->table_size);
+    struct hashmap_item_t *next = hashmap->table[table_index];
+    hashmap->table[table_index] = item;
     item->next = next;
 
     struct lru_node_t *lru_node = malloc(sizeof(struct lru_node_t));
-    lru_node->hashmap_item = item;
+    lru_hook_node_before_sentinel(lru_node, hashmap->sentinel);
     item->lru_node = lru_node;
-    lru_node->next = NULL;
-    if (hashmap->lru_last == NULL)
-    {
-        lru_node->prev = NULL;
-        hashmap->lru_first = lru_node;
-    } else {
-        hashmap->lru_last->next = lru_node;
-        lru_node->prev = hashmap->lru_last;
-    }
-    hashmap->lru_last = lru_node;
+    lru_node->hashmap_item = item;
 
     return item->cas;
 }
@@ -82,17 +91,44 @@ hashmap_add(struct hashmap_t *hashmap, char *key, size_t key_size, char *value, 
 int
 hashmap_remove(struct hashmap_t *hashmap, char *key, size_t key_size)
 {
+    size_t table_index = hash(key, key_size, hashmap->table_size);
+    struct hashmap_item_t *item = hashmap->table[table_index];
+    if (item->key_size == key_size && memcmp(key, item->key, key_size) == 0)
+    {
+        hashmap->table[table_index] = item->next;
+    } else {
+        while (item->next != NULL &&
+                (item->next->key_size != key_size || memcmp(key, item->next->key, key_size) != 0)) {
+            item = item->next;
+        }
+        if (item->next == NULL) {
+            return -1;
+        }
+        struct hashmap_item_t *copy = item->next;
+        item->next = item->next->next;
+        item = copy;
+    }
+
+    lru_remove_node_from_list(item->lru_node);
+    free(item->lru_node);
+    free(item->key);
+    free(item->value);
+
     return 0;
 }
 
 struct hashmap_item_t *
 hashmap_find(struct hashmap_t *hashmap, char *key, size_t key_size)
 {
-    size_t table_position = hash(key, key_size, hashmap->table_size);
-    struct hashmap_item_t *iterator;
-    for (iterator = hashmap->table[table_position]; iterator; iterator = iterator->next) {
-        if (key_size == iterator->key_size && memcmp(key, iterator->key, key_size) == 0) {
-            return iterator;
+    size_t table_index = hash(key, key_size, hashmap->table_size);
+    struct hashmap_item_t *item;
+    for (item = hashmap->table[table_index]; item; item = item->next)
+    {
+        if (key_size == item->key_size && memcmp(key, item->key, key_size) == 0)
+        {
+            lru_remove_node_from_list(item->lru_node);
+            lru_hook_node_before_sentinel(item->lru_node, hashmap->sentinel);
+            return item;
         }
     }
     return NULL;

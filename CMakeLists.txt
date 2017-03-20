@@ -3,5 +3,5 @@ project(slkcached)
 
 set(CMAKE_C_STANDARD 11)
 
-set(SOURCE_FILES main.c)
+set(SOURCE_FILES main.c hashmap.h hashmap.c)
 add_executable(slkcached ${SOURCE_FILES})

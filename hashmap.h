@@ -1,7 +1,3 @@
-//
-// Created by Stefan Filip on 3/20/17.
-//
-
 #ifndef SLKCACHED_HASHMAP_H
 #define SLKCACHED_HASHMAP_H
 
@@ -39,26 +35,16 @@ struct hashmap_t {
     struct lru_node_t *sentinel;
 };
 
-/**
- * Creates a new hashmap
- *
- * @param hash_size
- * @return
- */
+
 struct hashmap_t *
 hashmap_init(size_t hash_size);
 
-/**
- *
- * @param parent
- * @param key
- * @param key_size
- * @param value
- * @param value_size
- * @return cas value for this item
- */
 int64_t
 hashmap_add(struct hashmap_t *hashmap, char *key, size_t key_size, char *value, size_t value_size);
+
+int64_t
+hashmap_check_and_set(struct hashmap_t *hashmap, char *key, size_t key_size, int64_t cas_value,
+                      char *value, size_t value_size);
 
 int
 hashmap_remove(struct hashmap_t *hashmap, char *key, size_t key_size);

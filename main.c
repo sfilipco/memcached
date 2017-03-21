@@ -19,17 +19,29 @@ print_hashmap_item(struct hashmap_item_t *item)
     }
 }
 
-int main()
+// TODO: check allocation failures in many places
+// TODO: support resizing of hash table
+// NOTE: I wonder if we are effected by poor byte packing
+int main(int argc, char **argv)
 {
-    // TODO: check allocation failures in many places
-    // TODO(stefan): support resizing of hash table
+
     printf("Hello, World!\n");
+    const int M = 1000 * 1000;
+    char buf[16];
+    size_t len;
+    struct hashmap_item_t *item;
+    int64_t cas;
 
     struct hashmap_t *hashmap = hashmap_init(10 * MB);
 
     hashmap_add(hashmap, "ana", 3, "mere", 4);
     hashmap_add(hashmap, "ema", 3, "pere", 4);
 
+    item = hashmap_find(hashmap, "ana", 3);
+    if (hashmap_check_and_set(hashmap, "ana", 3, 0, "prune", 5) != -1) {
+        printf("Check and set was supposed to error");
+    }
+    hashmap_check_and_set(hashmap, "ana", 3, item->cas, "prune", 5);
     print_hashmap_item(hashmap_find(hashmap, "ana", 3));
     print_hashmap_item(hashmap_find(hashmap, "ema", 3));
     print_hashmap_item(hashmap_find(hashmap, "ioana", 5));
@@ -37,10 +49,6 @@ int main()
     hashmap_remove(hashmap, "ana", 3);
     print_hashmap_item(hashmap_find(hashmap, "ana", 3));
 
-    const int M = 1000 * 1000;
-    char buf[16];
-    size_t len;
-    struct hashmap_item_t *item;
     for (int i = 1; i <= 10*M; ++i)
     {
         if (DEBUG && i % 1000 == 0) printf("with %d\n", i);

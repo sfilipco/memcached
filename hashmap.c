@@ -63,6 +63,7 @@ lru_remove_node_from_list(struct lru_node_t *node)
 int64_t
 hashmap_add(struct hashmap_t *hashmap, char *key, size_t key_size, char *value, size_t value_size)
 {
+    // TODO: Check that key does not exist
     struct hashmap_item_t *item = malloc(sizeof(struct hashmap_item_t));
 
     item->key = malloc(key_size);
@@ -87,6 +88,30 @@ hashmap_add(struct hashmap_t *hashmap, char *key, size_t key_size, char *value, 
 
     return item->cas;
 }
+
+int64_t
+hashmap_check_and_set(struct hashmap_t *hashmap, char *key, size_t key_size, int64_t cas_value,
+                      char *value, size_t value_size)
+{
+    size_t table_index = hash(key, key_size, hashmap->table_size);
+    struct hashmap_item_t *item;
+    for (item = hashmap->table[table_index]; item; item = item->next)
+    {
+        if (item->cas == cas_value)
+        {
+            lru_remove_node_from_list(item->lru_node);
+            lru_hook_node_before_sentinel(item->lru_node, hashmap->sentinel);
+            item->cas = hashmap->cas_index++;
+            free(item->value);
+            item->value = malloc(value_size);
+            memcpy(item->value, value, value_size);
+            item->value_size = value_size;
+            return item->cas;
+        }
+    }
+    return -1;
+}
+
 
 int
 hashmap_remove(struct hashmap_t *hashmap, char *key, size_t key_size)

@@ -3,19 +3,17 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include "buffer.h"
 
 // consider making hashmap_item more private
+// ordering to optimize bit packing though we should verify if it's still a problem in these days
 struct hashmap_item_t {
-    char *key;
-    size_t key_size;
-
-    char *value;
-    size_t value_size;
+    struct hashmap_item_t *next;
+    struct lru_node_t *lru_node;
 
     int64_t cas;
 
-    struct hashmap_item_t *next;
-    struct lru_node_t *lru_node;
+    struct buffer_t key, value;
 };
 
 
@@ -40,16 +38,15 @@ struct hashmap_t *
 hashmap_init(size_t hash_size);
 
 int64_t
-hashmap_add(struct hashmap_t *hashmap, char *key, size_t key_size, char *value, size_t value_size);
+hashmap_add(struct hashmap_t *hashmap, struct buffer_t *key, struct buffer_t *value);
 
 int64_t
-hashmap_check_and_set(struct hashmap_t *hashmap, char *key, size_t key_size, int64_t cas_value,
-                      char *value, size_t value_size);
+hashmap_check_and_set(struct hashmap_t *hashmap, struct buffer_t *key, int64_t cas_value, struct buffer_t *value);
 
 int
-hashmap_remove(struct hashmap_t *hashmap, char *key, size_t key_size);
+hashmap_remove(struct hashmap_t *hashmap, struct buffer_t *key);
 
 struct hashmap_item_t *
-hashmap_find(struct hashmap_t *hashmap, char *key, size_t key_size);
+hashmap_find(struct hashmap_t *hashmap, struct buffer_t *key);
 
 #endif //SLKCACHED_HASHMAP_H

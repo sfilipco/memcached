@@ -1,6 +1,5 @@
 #include <assert.h>
 #include <stdio.h>
-#include <string.h>
 
 #include "hashmap.h"
 #include "memory.h"
@@ -18,14 +17,6 @@ print_buffer_t(struct buffer_t *buffer)
     } else {
         printf("%.*s\n", (int) buffer->size, buffer->content);
     }
-}
-
-struct buffer_t *
-str2buf(char *str)
-{
-    struct buffer_t *response = malloc(sizeof(struct buffer_t));
-    buffer_from_string(response, str);
-    return response;
 }
 
 void
@@ -78,11 +69,12 @@ str_remove(char *key)
 // TODO: check allocation failures in many places
 // TODO: support resizing of hash hash_table
 // NOTE: I wonder if we are effected by poor byte packing
-// NOTE: I just had to go and add the buffer struct... this rough benchmark suggests that we lost 25% throughput :(
-// Maybe there are more aggressive compiler flags that we can use.
+// memory.c is probably the most important piece to optimize
+// Buffer interface is probably second
+
 int main(int argc, char **argv)
 {
-    set_memory_limit((size_t) 10 * MB);
+    set_memory_limit((size_t) 200 * MB);
 
     void *ptr;
     ptr = memory_allocate(100);
@@ -92,7 +84,7 @@ int main(int argc, char **argv)
     ptr = memory_allocate(64);
     memory_free(ptr);
 
-    hashmap_init(1*MB); // 1MB * sizeof(*ptr)
+    hashmap_init(1*MB); // 1MB * sizeof(*ptr) = 8MB on my machine
 
     printf("Hello, World!\n");
 

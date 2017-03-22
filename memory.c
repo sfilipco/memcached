@@ -1,7 +1,8 @@
-#include "memory.h"
-#include "hashmap.h"
 #include <stdlib.h>
-#include <printf.h>
+#include <stdio.h>
+
+#include "hashmap.h"
+#include "memory.h"
 
 size_t memory_limit = 0;
 size_t allocated_memory = 0;
@@ -24,31 +25,24 @@ memory_allocate(size_t size)
     // We store the allocated size next to the allocated block
     size += sizeof(size_t);
 
-    int temp;
     // Not the best separation of concerns but direct
     while (allocated_memory + size > memory_limit)
     {
-        temp = hashmap_remove_lru();
-        if (temp != 0)
+        if (hashmap_remove_lru() != 0)
         {
-            printf("could not remove lru\n");
-            hashmap_remove_lru();
-        }
-    }
-    if (allocated_memory + size <= memory_limit)
-    {
-        size_t *response = malloc(size);
-        if (!response)
-        {
-            printf("could not allocate memory");
+            perror("could not remove lru element\n");
             return NULL;
         }
-        allocated_memory += size;
-        *response = size;
-        return response+1;
     }
-    printf("how did this happen?\n");
-    return NULL;
+    size_t *response = malloc(size);
+    if (!response)
+    {
+        perror("could not allocate memory");
+        return NULL;
+    }
+    allocated_memory += size;
+    *response = size;
+    return response+1;
 }
 
 void *

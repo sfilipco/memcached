@@ -110,13 +110,13 @@ hashmap_check_and_set(struct buffer_t *key, struct buffer_t *value, uint64_t cas
         {
             lru_remove_node_from_list(item->lru_node);
             lru_hook_node_before_sentinel(item->lru_node, lru_sentinel);
-            item->cas = cas_index++;
+            item->cas = ++cas_index;
             buffer_clear(&item->value);
             buffer_copy(&item->value, value);
             return item->cas;
         }
     }
-    return -1;
+    return 0;
 }
 
 

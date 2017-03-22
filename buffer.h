@@ -4,8 +4,8 @@
 #include <stdlib.h>
 
 struct buffer_t {
-    size_t size;
     char *content;
+    size_t size;
 };
 
 void

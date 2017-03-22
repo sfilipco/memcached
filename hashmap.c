@@ -2,6 +2,7 @@
 
 #include "buffer.h"
 #include "hashmap.h"
+#include "memory.h"
 
 // We preallocate a hash_table as large as we can from the start
 // This has poor memory usage when we have a few large key, values pairs
@@ -13,7 +14,7 @@ struct hashmap_item_t {
     struct hashmap_item_t *next;
     struct lru_node_t *lru_node;
 
-    int64_t cas;
+    uint64_t cas;
 
     struct buffer_t key, value;
 };
@@ -25,18 +26,19 @@ struct lru_node_t {
 
 struct hashmap_item_t* *hash_table;
 uint64_t hash_table_size;
-int64_t cas_index;
+uint64_t cas_index, _items_in_hash;
 struct lru_node_t *lru_sentinel;
 
 int
 hashmap_init(uint64_t _table_size)
 {
     hash_table_size = _table_size;
-    hash_table = malloc(hash_table_size * sizeof(struct hashmap_item_t *));
+    hash_table = memory_allocate(hash_table_size * sizeof(struct hashmap_item_t *));
 
     cas_index = 0;
+    _items_in_hash = 0;
 
-    lru_sentinel = malloc(sizeof(struct lru_node_t));
+    lru_sentinel = memory_allocate(sizeof(struct lru_node_t));
     lru_sentinel->prev = lru_sentinel->next = lru_sentinel;
 
     return 0;
@@ -71,11 +73,11 @@ lru_remove_node_from_list(struct lru_node_t *node)
     node->next->prev = node->prev;
 }
 
-int64_t
+uint64_t
 hashmap_add(struct buffer_t *key, struct buffer_t *value)
 {
     // TODO: Check that key does not exist
-    struct hashmap_item_t *item = malloc(sizeof(struct hashmap_item_t));
+    struct hashmap_item_t *item = memory_allocate(sizeof(struct hashmap_item_t));
 
     buffer_copy(&item->key, key);
     buffer_copy(&item->value, value);
@@ -87,16 +89,18 @@ hashmap_add(struct buffer_t *key, struct buffer_t *value)
     hash_table[table_index] = item;
     item->next = next;
 
-    struct lru_node_t *lru_node = malloc(sizeof(struct lru_node_t));
+    struct lru_node_t *lru_node = memory_allocate(sizeof(struct lru_node_t));
     lru_hook_node_before_sentinel(lru_node, lru_sentinel);
     item->lru_node = lru_node;
     lru_node->hashmap_item = item;
 
+    ++_items_in_hash;
+
     return item->cas;
 }
 
-int64_t
-hashmap_check_and_set(struct buffer_t *key, struct buffer_t *value, int64_t cas_value)
+uint64_t
+hashmap_check_and_set(struct buffer_t *key, struct buffer_t *value, uint64_t cas_value)
 {
     size_t table_index = hash(key, hash_table_size);
     struct hashmap_item_t *item;
@@ -137,18 +141,20 @@ hashmap_remove(struct buffer_t *key)
     }
 
     lru_remove_node_from_list(item->lru_node);
-    free(item->lru_node);
+    memory_free(item->lru_node);
 
     buffer_clear(&item->key);
     buffer_clear(&item->value);
 
-    free(item);
+    memory_free(item);
+
+    --_items_in_hash;
 
     return 0;
 }
 
 int
-hashmap_find(struct buffer_t *key, struct buffer_t **value, int64_t *cas_value)
+hashmap_find(struct buffer_t *key, struct buffer_t **value, uint64_t *cas_value)
 {
     size_t table_index = hash(key, hash_table_size);
     struct hashmap_item_t *item;
@@ -172,10 +178,10 @@ hashmap_find(struct buffer_t *key, struct buffer_t **value, int64_t *cas_value)
 int
 hashmap_remove_lru()
 {
-    if (lru_sentinel->prev != lru_sentinel)
+    if (lru_sentinel->next == lru_sentinel)
     {
         return -1;
     } else {
-        return hashmap_remove(&lru_sentinel->prev->hashmap_item->key);
+        return hashmap_remove(&lru_sentinel->next->hashmap_item->key);
     }
 }

@@ -1,11 +1,13 @@
 #include <memory.h>
 
 #include "buffer.h"
+#include "memory.h"
+
 
 void
 buffer_clear(struct buffer_t *buffer)
 {
-    free(buffer->content);
+    memory_free(buffer->content);
     /*
      * Could setting the size and content help us or will it cause troubles?
      * Let's assume for now that they are always random values
@@ -18,7 +20,7 @@ void
 buffer_copy(struct buffer_t *dest, struct buffer_t *src)
 {
     dest->size = src->size;
-    dest->content = malloc(src->size);
+    dest->content = memory_allocate(src->size);
     memcpy(dest->content, src->content, src->size);
 }
 
@@ -26,7 +28,7 @@ void
 buffer_from_string(struct buffer_t *dest, char *str)
 {
     dest->size = strlen(str);
-    dest->content = malloc(dest->size);
+    dest->content = memory_allocate(dest->size);
     memcpy(dest->content, str, dest->size);
 }
 

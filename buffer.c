@@ -45,3 +45,10 @@ buffer_compare(struct buffer_t *a, struct buffer_t *b)
     }
     return 0;
 }
+
+int
+buffer_compare_string(struct buffer_t *buffer, char *string)
+{
+    return strncmp(buffer->content, string, buffer->size);
+}
+

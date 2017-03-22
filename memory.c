@@ -42,10 +42,39 @@ memory_allocate(size_t size)
     }
     allocated_memory += size;
     *response = size;
-    return response+1;
+    return response + 1;
 }
 
 void *
+memory_reallocate(void *ptr, size_t size)
+{
+    if (ptr == NULL) return memory_allocate(size);
+
+    size += sizeof(size_t);
+
+    size_t *old_ptr = ((size_t *) ptr) - 1;
+    size_t old_size = *old_ptr;
+    size_t difference = size - old_size;
+    while (allocated_memory + difference > memory_limit)
+    {
+        if (hashmap_remove_lru() != 0)
+        {
+            perror("reallocate could not remove lru element\n");
+            return NULL;
+        }
+    }
+    size_t *response = realloc(old_ptr, size);
+    if (!response)
+    {
+        perror("could not reallocate memory");
+        return NULL;
+    }
+
+    *response = size;
+    return response + 1;
+}
+
+void
 memory_free(void *address)
 {
     size_t *ptr_size = ((size_t *) address) - 1;

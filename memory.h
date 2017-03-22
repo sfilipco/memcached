@@ -13,6 +13,9 @@ void *
 memory_allocate(size_t size);
 
 void *
+memory_reallocate(void *ptr, size_t size);
+
+void
 memory_free(void *address);
 
 #endif //SLKCACHED_MEMORY_H

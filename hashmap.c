@@ -73,7 +73,7 @@ lru_remove_node_from_list(struct lru_node_t *node)
     node->next->prev = node->prev;
 }
 
-uint64_t
+int
 hashmap_add(struct buffer_t *key, struct buffer_t *value)
 {
     // TODO: Check that key does not exist
@@ -96,10 +96,10 @@ hashmap_add(struct buffer_t *key, struct buffer_t *value)
 
     ++_items_in_hash;
 
-    return item->cas;
+    return 0;
 }
 
-uint64_t
+int
 hashmap_check_and_set(struct buffer_t *key, struct buffer_t *value, uint64_t cas_value)
 {
     size_t table_index = hash(key, hash_table_size);
@@ -110,13 +110,13 @@ hashmap_check_and_set(struct buffer_t *key, struct buffer_t *value, uint64_t cas
         {
             lru_remove_node_from_list(item->lru_node);
             lru_hook_node_before_sentinel(item->lru_node, lru_sentinel);
-            item->cas = ++cas_index;
+            item->cas = ++ cas_index;
             buffer_clear(&item->value);
             buffer_copy(&item->value, value);
-            return item->cas;
+            return 0;
         }
     }
-    return 0;
+    return -1;
 }
 
 

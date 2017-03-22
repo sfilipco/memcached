@@ -5,3 +5,4 @@ set(CMAKE_C_STANDARD 11)
 
 set(SOURCE_FILES main.c hashmap.h hashmap.c buffer.h buffer.c memory.h memory.c)
 add_executable(slkcached ${SOURCE_FILES})
+target_link_libraries(slkcached event)

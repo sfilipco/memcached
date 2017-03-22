@@ -20,4 +20,7 @@ buffer_from_string(struct buffer_t *dest, char *str);
 int
 buffer_compare(struct buffer_t *a, struct buffer_t *b);
 
+int
+buffer_compare_string(struct buffer_t *buffer, char *string);
+
 #endif //SLKCACHED_BUFFER_H

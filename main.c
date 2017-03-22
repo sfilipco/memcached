@@ -201,25 +201,22 @@ handle_get(struct buffer_t *cmd_content, struct evbuffer *output)
 {
     struct buffer_t key, *buffer_ptr;
     uint64_t cas_value;
-    char buf[64];
 
     key.size = cmd_content->size;
     key.content = cmd_content->content;
 
     hashmap_find(&key, &buffer_ptr, &cas_value);
-    if (buffer_ptr == NULL)
+    if (buffer_ptr != NULL)
     {
-        evbuffer_add(output, "NOT FOUND\r\n", 11);
-    } else {
-        evbuffer_add(output, "FOUND", 5);
+        evbuffer_add(output, "VALUE", 5);
         evbuffer_add(output, " ", 1);
         evbuffer_add(output, key.content, key.size);
         evbuffer_add(output, " 0 ", 3); // flags not supported
-        sprintf(buf, "%zu %llu\r\n", buffer_ptr->size, cas_value);
-        evbuffer_add(output, buf, strlen(buf));
+        evbuffer_add_printf(output, "%zu %llu\r\n", buffer_ptr->size, cas_value);
         evbuffer_add(output, buffer_ptr->content, buffer_ptr->size);
         evbuffer_add(output, "\r\n", 2);
     }
+    evbuffer_add(output, "END\r\n", 5);
     return 0;
 }
 
@@ -245,11 +242,12 @@ readcb(struct bufferevent *bev, void *ctx)
 
         if (buffer_compare_string(command, "SET") == 0)
         {
+
             if (handle_set(cmd_content, output) != 0)
             {
                 // error
             }
-        } else if (buffer_compare_string(command, "GET") == 0)
+        } else if (buffer_compare_string(command, "GET") == 0 || buffer_compare_string(command, "GETS") == 0)
         {
             if (handle_get(cmd_content, output) != 0)
             {
@@ -311,6 +309,10 @@ int main(int argc, char **argv)
 {
     set_memory_limit((size_t) 200 * MEGABYTE);
     hashmap_init(1*MEGABYTE);
+
+    // hash_test(); return 0;
+
+    // We may not always want to count the IO buffers in our memory consumption but it seems fine to so by default
     event_set_mem_functions(memory_allocate, memory_reallocate, memory_free);
 
     evutil_socket_t listener;

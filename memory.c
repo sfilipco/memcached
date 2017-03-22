@@ -22,7 +22,7 @@ get_allocated_memory()
 void *
 memory_allocate(size_t size)
 {
-    // We store the allocated size next to the allocated block
+    // We store the allocated size lru_next to the allocated block
     size += sizeof(size_t);
 
     // Not the best separation of concerns but direct

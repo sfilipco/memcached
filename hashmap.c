@@ -11,23 +11,19 @@
 // TODO: support resizing
 
 struct hashmap_item_t {
-    struct hashmap_item_t *next;
-    struct lru_node_t *lru_node;
+    struct hashmap_item_t *table_next, *lru_next, *lru_prev;
 
     uint64_t cas;
+    // TODO: uint32_t flags;
 
     struct buffer_t key, value;
 };
 
-struct lru_node_t {
-    struct hashmap_item_t *hashmap_item;
-    struct lru_node_t *next, *prev;
-};
 
 struct hashmap_item_t* *hash_table;
 uint64_t hash_table_size;
 uint64_t cas_index, _items_in_hash;
-struct lru_node_t *lru_sentinel;
+struct hashmap_item_t *lru_sentinel;
 
 int
 hashmap_init(uint64_t _table_size)
@@ -38,8 +34,8 @@ hashmap_init(uint64_t _table_size)
     cas_index = 0;
     _items_in_hash = 0;
 
-    lru_sentinel = memory_allocate(sizeof(struct lru_node_t));
-    lru_sentinel->prev = lru_sentinel->next = lru_sentinel;
+    lru_sentinel = memory_allocate(sizeof(struct hashmap_item_t));
+    lru_sentinel->lru_prev = lru_sentinel->lru_next = lru_sentinel;
 
     return 0;
 }
@@ -58,19 +54,19 @@ hash(struct buffer_t *buffer, size_t table_size)
 }
 
 void
-lru_hook_node_before_sentinel(struct lru_node_t *node, struct lru_node_t *sentinel)
+lru_hook_node_before_sentinel(struct hashmap_item_t *node, struct hashmap_item_t *sentinel)
 {
-    node->next = sentinel;
-    node->prev = sentinel->prev;
-    sentinel->prev->next = node;
-    sentinel->prev = node;
+    node->lru_next = sentinel;
+    node->lru_prev = sentinel->lru_prev;
+    sentinel->lru_prev->lru_next = node;
+    sentinel->lru_prev = node;
 }
 
 void
-lru_remove_node_from_list(struct lru_node_t *node)
+lru_remove_node_from_list(struct hashmap_item_t *node)
 {
-    node->prev->next = node->next;
-    node->next->prev = node->prev;
+    node->lru_prev->lru_next = node->lru_next;
+    node->lru_next->lru_prev = node->lru_prev;
 }
 
 int
@@ -87,12 +83,9 @@ hashmap_add(struct buffer_t *key, struct buffer_t *value)
     size_t table_index = hash(key, hash_table_size);
     struct hashmap_item_t *next = hash_table[table_index];
     hash_table[table_index] = item;
-    item->next = next;
+    item->table_next = next;
 
-    struct lru_node_t *lru_node = memory_allocate(sizeof(struct lru_node_t));
-    lru_hook_node_before_sentinel(lru_node, lru_sentinel);
-    item->lru_node = lru_node;
-    lru_node->hashmap_item = item;
+    lru_hook_node_before_sentinel(item, lru_sentinel);
 
     ++_items_in_hash;
 
@@ -104,12 +97,12 @@ hashmap_check_and_set(struct buffer_t *key, struct buffer_t *value, uint64_t cas
 {
     size_t table_index = hash(key, hash_table_size);
     struct hashmap_item_t *item;
-    for (item = hash_table[table_index]; item; item = item->next)
+    for (item = hash_table[table_index]; item; item = item->table_next)
     {
         if (item->cas == cas_value)
         {
-            lru_remove_node_from_list(item->lru_node);
-            lru_hook_node_before_sentinel(item->lru_node, lru_sentinel);
+            lru_remove_node_from_list(item);
+            lru_hook_node_before_sentinel(item, lru_sentinel);
             item->cas = ++ cas_index;
             buffer_clear(&item->value);
             buffer_copy(&item->value, value);
@@ -127,21 +120,20 @@ hashmap_remove(struct buffer_t *key)
     struct hashmap_item_t *item = hash_table[table_index];
     if (buffer_compare(&item->key, key) == 0)
     {
-        hash_table[table_index] = item->next;
+        hash_table[table_index] = item->table_next;
     } else {
-        while (item->next != NULL && buffer_compare(&item->next->key, key) != 0) {
-            item = item->next;
+        while (item->table_next != NULL && buffer_compare(&item->table_next->key, key) != 0) {
+            item = item->table_next;
         }
-        if (item->next == NULL) {
+        if (item->table_next == NULL) {
             return -1;
         }
-        struct hashmap_item_t *copy = item->next;
-        item->next = item->next->next;
+        struct hashmap_item_t *copy = item->table_next;
+        item->table_next = item->table_next->table_next;
         item = copy;
     }
 
-    lru_remove_node_from_list(item->lru_node);
-    memory_free(item->lru_node);
+    lru_remove_node_from_list(item);
 
     buffer_clear(&item->key);
     buffer_clear(&item->value);
@@ -158,12 +150,12 @@ hashmap_find(struct buffer_t *key, struct buffer_t **value, uint64_t *cas_value)
 {
     size_t table_index = hash(key, hash_table_size);
     struct hashmap_item_t *item;
-    for (item = hash_table[table_index]; item; item = item->next)
+    for (item = hash_table[table_index]; item; item = item->table_next)
     {
         if (buffer_compare(&item->key, key) == 0)
         {
-            lru_remove_node_from_list(item->lru_node);
-            lru_hook_node_before_sentinel(item->lru_node, lru_sentinel);
+            lru_remove_node_from_list(item);
+            lru_hook_node_before_sentinel(item, lru_sentinel);
             *value = &item->value;
             *cas_value = item->cas;
             return 0;
@@ -178,10 +170,10 @@ hashmap_find(struct buffer_t *key, struct buffer_t **value, uint64_t *cas_value)
 int
 hashmap_remove_lru()
 {
-    if (lru_sentinel->next == lru_sentinel)
+    if (lru_sentinel->lru_next == lru_sentinel)
     {
         return -1;
     } else {
-        return hashmap_remove(&lru_sentinel->next->hashmap_item->key);
+        return hashmap_remove(&lru_sentinel->lru_next->key);
     }
 }

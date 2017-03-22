@@ -1,36 +1,45 @@
-//
-// Created by Stefan Filip on 3/20/17.
-//
-
 #include <memory.h>
 
 #include "buffer.h"
 #include "hashmap.h"
 
-struct hashmap_t *
-hashmap_init(size_t memory_size)
+// We preallocate a hash_table as large as we can from the start
+// This has poor memory usage when we have a few large key, values pairs
+// If we have small key, value pairs than we have run into more collisions but since we
+// are using a linked list for collisions we handle that scenario ok
+// TODO: support resizing
+
+struct hashmap_item_t {
+    struct hashmap_item_t *next;
+    struct lru_node_t *lru_node;
+
+    int64_t cas;
+
+    struct buffer_t key, value;
+};
+
+struct lru_node_t {
+    struct hashmap_item_t *hashmap_item;
+    struct lru_node_t *next, *prev;
+};
+
+struct hashmap_item_t* *hash_table;
+uint64_t hash_table_size;
+int64_t cas_index;
+struct lru_node_t *lru_sentinel;
+
+int
+hashmap_init(uint64_t _table_size)
 {
-    if (memory_size == 0) return NULL;
+    hash_table_size = _table_size;
+    hash_table = malloc(hash_table_size * sizeof(struct hashmap_item_t *));
 
-    struct hashmap_t *hashmap = malloc(sizeof(struct hashmap_t));
-    hashmap->memory_size = memory_size;
+    cas_index = 0;
 
-    // We preallocate a table as large as we can from the start
-    // This has poor memory usage when we have a few large key, values pairs
-    // If we have small key, value pairs than we have run into more collisions but since we
-    // are using a linked list for collisions we handle that scenario ok
-    // TODO(stefan): support resizing
-    hashmap->table_size = memory_size >> 2;
+    lru_sentinel = malloc(sizeof(struct lru_node_t));
+    lru_sentinel->prev = lru_sentinel->next = lru_sentinel;
 
-    hashmap->table = malloc(hashmap->table_size * sizeof(struct hashmap_item_t *));
-
-    hashmap->cas_index = 1;
-
-    hashmap->sentinel = malloc(sizeof(struct lru_node_t));
-    hashmap->sentinel->prev = hashmap->sentinel;
-    hashmap->sentinel->next = hashmap->sentinel;
-
-    return hashmap;
+    return 0;
 }
 
 size_t
@@ -63,7 +72,7 @@ lru_remove_node_from_list(struct lru_node_t *node)
 }
 
 int64_t
-hashmap_add(struct hashmap_t *hashmap, struct buffer_t *key, struct buffer_t *value)
+hashmap_add(struct buffer_t *key, struct buffer_t *value)
 {
     // TODO: Check that key does not exist
     struct hashmap_item_t *item = malloc(sizeof(struct hashmap_item_t));
@@ -71,15 +80,15 @@ hashmap_add(struct hashmap_t *hashmap, struct buffer_t *key, struct buffer_t *va
     buffer_copy(&item->key, key);
     buffer_copy(&item->value, value);
 
-    item->cas = hashmap->cas_index++;
+    item->cas = ++cas_index;
 
-    size_t table_index = hash(key, hashmap->table_size);
-    struct hashmap_item_t *next = hashmap->table[table_index];
-    hashmap->table[table_index] = item;
+    size_t table_index = hash(key, hash_table_size);
+    struct hashmap_item_t *next = hash_table[table_index];
+    hash_table[table_index] = item;
     item->next = next;
 
     struct lru_node_t *lru_node = malloc(sizeof(struct lru_node_t));
-    lru_hook_node_before_sentinel(lru_node, hashmap->sentinel);
+    lru_hook_node_before_sentinel(lru_node, lru_sentinel);
     item->lru_node = lru_node;
     lru_node->hashmap_item = item;
 
@@ -87,17 +96,17 @@ hashmap_add(struct hashmap_t *hashmap, struct buffer_t *key, struct buffer_t *va
 }
 
 int64_t
-hashmap_check_and_set(struct hashmap_t *hashmap, struct buffer_t *key, int64_t cas_value, struct buffer_t *value)
+hashmap_check_and_set(struct buffer_t *key, struct buffer_t *value, int64_t cas_value)
 {
-    size_t table_index = hash(key, hashmap->table_size);
+    size_t table_index = hash(key, hash_table_size);
     struct hashmap_item_t *item;
-    for (item = hashmap->table[table_index]; item; item = item->next)
+    for (item = hash_table[table_index]; item; item = item->next)
     {
         if (item->cas == cas_value)
         {
             lru_remove_node_from_list(item->lru_node);
-            lru_hook_node_before_sentinel(item->lru_node, hashmap->sentinel);
-            item->cas = hashmap->cas_index++;
+            lru_hook_node_before_sentinel(item->lru_node, lru_sentinel);
+            item->cas = cas_index++;
             buffer_clear(&item->value);
             buffer_copy(&item->value, value);
             return item->cas;
@@ -108,13 +117,13 @@ hashmap_check_and_set(struct hashmap_t *hashmap, struct buffer_t *key, int64_t c
 
 
 int
-hashmap_remove(struct hashmap_t *hashmap, struct buffer_t *key)
+hashmap_remove(struct buffer_t *key)
 {
-    size_t table_index = hash(key, hashmap->table_size);
-    struct hashmap_item_t *item = hashmap->table[table_index];
+    size_t table_index = hash(key, hash_table_size);
+    struct hashmap_item_t *item = hash_table[table_index];
     if (buffer_compare(&item->key, key) == 0)
     {
-        hashmap->table[table_index] = item->next;
+        hash_table[table_index] = item->next;
     } else {
         while (item->next != NULL && buffer_compare(&item->next->key, key) != 0) {
             item = item->next;
@@ -138,19 +147,35 @@ hashmap_remove(struct hashmap_t *hashmap, struct buffer_t *key)
     return 0;
 }
 
-struct hashmap_item_t *
-hashmap_find(struct hashmap_t *hashmap, struct buffer_t *key)
+int
+hashmap_find(struct buffer_t *key, struct buffer_t **value, int64_t *cas_value)
 {
-    size_t table_index = hash(key, hashmap->table_size);
+    size_t table_index = hash(key, hash_table_size);
     struct hashmap_item_t *item;
-    for (item = hashmap->table[table_index]; item; item = item->next)
+    for (item = hash_table[table_index]; item; item = item->next)
     {
         if (buffer_compare(&item->key, key) == 0)
         {
             lru_remove_node_from_list(item->lru_node);
-            lru_hook_node_before_sentinel(item->lru_node, hashmap->sentinel);
-            return item;
+            lru_hook_node_before_sentinel(item->lru_node, lru_sentinel);
+            *value = &item->value;
+            *cas_value = item->cas;
+            return 0;
         }
     }
-    return NULL;
+
+    *value = NULL;
+    *cas_value = 0;
+    return 0;
+}
+
+int
+hashmap_remove_lru()
+{
+    if (lru_sentinel->prev != lru_sentinel)
+    {
+        return -1;
+    } else {
+        return hashmap_remove(&lru_sentinel->prev->hashmap_item->key);
+    }
 }

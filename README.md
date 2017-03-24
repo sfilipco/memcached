@@ -1,12 +1,12 @@
-Slkcached
+Memcached
 ---------
 
-An implementation of some of the operations in the Memcached protocol.
+A rough implementation for a Memcached server.
 
 Compile and Run
 -------------
 ```
-   mkdir bin; cd bin; cmake ../; make; ./slkcached
+   mkdir bin; cd bin; cmake ../; make; ./memcached
 ```
 
 This will start a process on port 11311 that takes cache commands.

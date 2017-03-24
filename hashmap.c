@@ -99,17 +99,20 @@ hashmap_check_and_set(struct buffer_t *key, struct buffer_t *value, uint64_t cas
     struct hashmap_item_t *item;
     for (item = hash_table[table_index]; item; item = item->table_next)
     {
-        if (item->cas == cas_value)
-        {
-            lru_remove_node_from_list(item);
-            lru_hook_node_before_sentinel(item, lru_sentinel);
-            item->cas = ++ cas_index;
-            buffer_clear(&item->value);
-            buffer_copy(&item->value, value);
-            return 0;
+        if (buffer_compare(&item->key, key) == 0) {
+            if (item->cas == cas_value) {
+                lru_remove_node_from_list(item);
+                lru_hook_node_before_sentinel(item, lru_sentinel);
+                item->cas = ++cas_index;
+                buffer_clear(&item->value);
+                buffer_copy(&item->value, value);
+                return 0;
+            } else {
+                return 2    ;
+            }
         }
     }
-    return -1;
+    return 1;
 }
 
 

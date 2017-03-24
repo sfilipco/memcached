@@ -6,12 +6,8 @@
 // memory.c is probably the most important piece to optimize
 // Buffer interface is probably second
 
-/* For sockaddr_in */
+
 #include <netinet/in.h>
-/* For socket functions */
-#include <sys/socket.h>
-/* For fcntl */
-#include <fcntl.h>
 
 #include <event2/event.h>
 #include <event2/buffer.h>
@@ -19,10 +15,7 @@
 
 #include <assert.h>
 #include <unistd.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <errno.h>
+#include <inttypes.h>
 
 #include "hashmap.h"
 #include "memory.h"
@@ -189,9 +182,52 @@ handle_set(struct buffer_t *cmd_content, struct evbuffer *output)
 
     if (hashmap_add(&key, &value) != 0)
     {
+        evbuffer_add(output, "ERROR\r\n", 7);
         return -1;
     }
     evbuffer_add(output, "STORED\r\n", 8);
+
+    return 0;
+}
+
+int
+handle_cas(struct buffer_t *cmd_content, struct evbuffer *output)
+{
+    struct buffer_t key, flags, exptime, bytes, cas, value;
+    uint64_t cas_value = 0;
+    read_until_delimiter(cmd_content, &key, ' ');
+    offset_buffer(cmd_content, key.size + 1);
+    read_until_delimiter(cmd_content, &flags, ' ');
+    offset_buffer(cmd_content, flags.size + 1);
+    read_until_delimiter(cmd_content, &exptime, ' ');
+    offset_buffer(cmd_content, exptime.size + 1);
+    read_until_delimiter(cmd_content, &bytes, ' ');
+    offset_buffer(cmd_content, bytes.size + 1);
+    read_until_delimiter(cmd_content, &cas, ' ');
+    offset_buffer(cmd_content, cas.size + 1);
+    value.content = cmd_content->content;
+    value.size = cmd_content->size;
+
+    // check if the buffer has non digit entries
+    for (size_t i = 0; i < cas.size; ++i) cas_value = cas_value * 10 + (cas.content[i] - '0');
+
+    int response = hashmap_check_and_set(&key, &value, cas_value);
+    if (response == -1)
+    {
+        evbuffer_add(output, "ERROR\r\n", 7);
+    }
+    if (response == 0)
+    {
+        evbuffer_add(output, "STORED\r\n", 8);
+    }
+    if (response == 1)
+    {
+        evbuffer_add(output, "NOT_FOUND\r\n", 11);
+    }
+    if (response == 2)
+    {
+        evbuffer_add(output, "EXISTS\r\n", 8);
+    }
 
     return 0;
 }
@@ -240,19 +276,25 @@ readcb(struct bufferevent *bev, void *ctx)
         cmd_content->size = line->size - command->size - 1;
         cmd_content->content = line->content + command->size + 1;
 
-        if (buffer_compare_string(command, "SET") == 0)
+        if (buffer_compare_string(command, "set") == 0)
         {
-
             if (handle_set(cmd_content, output) != 0)
             {
                 // error
             }
-        } else if (buffer_compare_string(command, "GET") == 0 || buffer_compare_string(command, "GETS") == 0)
+        } else if (buffer_compare_string(command, "cas") == 0 ) {
+            if (handle_cas(cmd_content, output) != 0)
+            {
+                // error
+            }
+        } else if (buffer_compare_string(command, "get") == 0 || buffer_compare_string(command, "gets") == 0)
         {
             if (handle_get(cmd_content, output) != 0)
             {
                 // error
             }
+        } else {
+            evbuffer_add(output, "ERROR\r\n", 7);
         }
 
         buffer_clear(line);

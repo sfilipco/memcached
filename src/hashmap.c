@@ -10,38 +10,39 @@
 // are using a linked list for collisions we handle that scenario ok
 // TODO: support resizing
 
-struct hashmap_item_t {
-    struct hashmap_item_t *table_next, *lru_next, *lru_prev;
+struct hashmap_item
+{
+    struct hashmap_item *table_next, *lru_next, *lru_prev;
 
     uint64_t cas;
     // TODO: uint32_t flags;
 
-    struct buffer_t key, value;
+    struct buffer key, value;
 };
 
 
-struct hashmap_item_t* *hash_table;
-uint64_t hash_table_size;
-uint64_t cas_index, _items_in_hash;
-struct hashmap_item_t *lru_sentinel;
+static struct hashmap_item **hash_table;
+static uint64_t hash_table_size;
+static uint64_t cas_index, _items_in_hash;
+static struct hashmap_item *lru_sentinel;
 
 int
 hashmap_init(uint64_t _table_size)
 {
     hash_table_size = _table_size;
-    hash_table = memory_allocate(hash_table_size * sizeof(struct hashmap_item_t *));
+    hash_table = memory_allocate(hash_table_size * sizeof(struct hashmap_item *));
 
     cas_index = 0;
     _items_in_hash = 0;
 
-    lru_sentinel = memory_allocate(sizeof(struct hashmap_item_t));
+    lru_sentinel = memory_allocate(sizeof(struct hashmap_item));
     lru_sentinel->lru_prev = lru_sentinel->lru_next = lru_sentinel;
 
     return 0;
 }
 
-size_t
-hash(struct buffer_t *buffer, size_t table_size)
+static size_t
+hash(struct buffer *buffer, size_t table_size)
 {
     // taken from http://stackoverflow.com/questions/7666509/hash-function-for-string
     // we could do better http://burtleburtle.net/bob/c/SpookyV2.h
@@ -53,27 +54,27 @@ hash(struct buffer_t *buffer, size_t table_size)
     return response & (table_size-1);
 }
 
-void
-lru_hook_node_before_sentinel(struct hashmap_item_t *node, struct hashmap_item_t *sentinel)
+static void
+lru_hook_node_before_sentinel(struct hashmap_item *node)
 {
-    node->lru_next = sentinel;
-    node->lru_prev = sentinel->lru_prev;
-    sentinel->lru_prev->lru_next = node;
-    sentinel->lru_prev = node;
+    node->lru_next = lru_sentinel;
+    node->lru_prev = lru_sentinel->lru_prev;
+    lru_sentinel->lru_prev->lru_next = node;
+    lru_sentinel->lru_prev = node;
 }
 
-void
-lru_remove_node_from_list(struct hashmap_item_t *node)
+static void
+lru_remove_node_from_list(struct hashmap_item *node)
 {
     node->lru_prev->lru_next = node->lru_next;
     node->lru_next->lru_prev = node->lru_prev;
 }
 
 int
-hashmap_add(struct buffer_t *key, struct buffer_t *value)
+hashmap_add(struct buffer *key, struct buffer *value)
 {
     // TODO: Check that key does not exist
-    struct hashmap_item_t *item = memory_allocate(sizeof(struct hashmap_item_t));
+    struct hashmap_item *item = memory_allocate(sizeof(struct hashmap_item));
 
     buffer_copy(&item->key, key);
     buffer_copy(&item->value, value);
@@ -81,11 +82,11 @@ hashmap_add(struct buffer_t *key, struct buffer_t *value)
     item->cas = ++cas_index;
 
     size_t table_index = hash(key, hash_table_size);
-    struct hashmap_item_t *next = hash_table[table_index];
+    struct hashmap_item *next = hash_table[table_index];
     hash_table[table_index] = item;
     item->table_next = next;
 
-    lru_hook_node_before_sentinel(item, lru_sentinel);
+    lru_hook_node_before_sentinel(item);
 
     ++_items_in_hash;
 
@@ -93,22 +94,22 @@ hashmap_add(struct buffer_t *key, struct buffer_t *value)
 }
 
 int
-hashmap_check_and_set(struct buffer_t *key, struct buffer_t *value, uint64_t cas_value)
+hashmap_check_and_set(struct buffer *key, struct buffer *value, uint64_t cas_value)
 {
     size_t table_index = hash(key, hash_table_size);
-    struct hashmap_item_t *item;
+    struct hashmap_item *item;
     for (item = hash_table[table_index]; item; item = item->table_next)
     {
         if (buffer_compare(&item->key, key) == 0) {
             if (item->cas == cas_value) {
                 lru_remove_node_from_list(item);
-                lru_hook_node_before_sentinel(item, lru_sentinel);
+                lru_hook_node_before_sentinel(item);
                 item->cas = ++cas_index;
                 buffer_clear(&item->value);
                 buffer_copy(&item->value, value);
                 return 0;
             } else {
-                return 2    ;
+                return 2;
             }
         }
     }
@@ -117,10 +118,10 @@ hashmap_check_and_set(struct buffer_t *key, struct buffer_t *value, uint64_t cas
 
 
 int
-hashmap_remove(struct buffer_t *key)
+hashmap_remove(struct buffer *key)
 {
     size_t table_index = hash(key, hash_table_size);
-    struct hashmap_item_t *item = hash_table[table_index];
+    struct hashmap_item *item = hash_table[table_index];
     if (buffer_compare(&item->key, key) == 0)
     {
         hash_table[table_index] = item->table_next;
@@ -131,7 +132,7 @@ hashmap_remove(struct buffer_t *key)
         if (item->table_next == NULL) {
             return -1;
         }
-        struct hashmap_item_t *copy = item->table_next;
+        struct hashmap_item *copy = item->table_next;
         item->table_next = item->table_next->table_next;
         item = copy;
     }
@@ -149,16 +150,16 @@ hashmap_remove(struct buffer_t *key)
 }
 
 int
-hashmap_find(struct buffer_t *key, struct buffer_t **value, uint64_t *cas_value)
+hashmap_find(struct buffer *key, struct buffer **value, uint64_t *cas_value)
 {
     size_t table_index = hash(key, hash_table_size);
-    struct hashmap_item_t *item;
+    struct hashmap_item *item;
     for (item = hash_table[table_index]; item; item = item->table_next)
     {
         if (buffer_compare(&item->key, key) == 0)
         {
             lru_remove_node_from_list(item);
-            lru_hook_node_before_sentinel(item, lru_sentinel);
+            lru_hook_node_before_sentinel(item);
             *value = &item->value;
             *cas_value = item->cas;
             return 0;

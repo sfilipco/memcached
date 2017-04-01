@@ -4,8 +4,8 @@
 #include "hashmap.h"
 #include "memory.h"
 
-size_t memory_limit = 0;
-size_t allocated_memory = 0;
+static size_t memory_limit = 0;
+static size_t allocated_memory = 0;
 
 void
 set_memory_limit(size_t limit)

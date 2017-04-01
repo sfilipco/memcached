@@ -24,7 +24,7 @@
 #define MEGABYTE 1048576
 
 void
-print_buffer_t(struct buffer_t *buffer)
+print_buffer_t(struct buffer *buffer)
 {
     if (buffer == NULL || buffer->size == 0 || buffer->content == NULL)
     {
@@ -37,7 +37,7 @@ print_buffer_t(struct buffer_t *buffer)
 void
 str_add(char *key, char *value)
 {
-    struct buffer_t _key, _value;
+    struct buffer _key, _value;
     buffer_from_string(&_key, key);
     buffer_from_string(&_value, value);
 
@@ -47,25 +47,25 @@ str_add(char *key, char *value)
     buffer_clear(&_value);
 }
 
-uint64_t
+int
 str_check_and_set(char *key, char *value, uint64_t cas)
 {
-    struct buffer_t _key, _value;
+    struct buffer _key, _value;
     buffer_from_string(&_key, key);
     buffer_from_string(&_value, value);
 
-    uint64_t _cas = hashmap_check_and_set(&_key, &_value, cas);
+    int response = hashmap_check_and_set(&_key, &_value, cas);
 
     buffer_clear(&_key);
     buffer_clear(&_value);
 
-    return _cas;
+    return response;
 }
 
 void
-str_find(char *key, struct buffer_t* *value, uint64_t *cas)
+str_find(char *key, struct buffer **value, uint64_t *cas)
 {
-    struct buffer_t _key;
+    struct buffer _key;
     buffer_from_string(&_key, key);
     hashmap_find(&_key, value, cas);
     buffer_clear(&_key);
@@ -74,7 +74,7 @@ str_find(char *key, struct buffer_t* *value, uint64_t *cas)
 int
 str_remove(char *key)
 {
-    struct buffer_t _key;
+    struct buffer _key;
     buffer_from_string(&_key, key);
     int response = hashmap_remove(&_key);
     buffer_clear(&_key);
@@ -98,7 +98,7 @@ void hash_test()
     const int M = 1000 * 1000;
 
     char buf[16];
-    struct buffer_t key, *buffer_ptr;
+    struct buffer key, *buffer_ptr;
     uint64_t cas;
 
     str_add("ana", "mere");
@@ -117,7 +117,7 @@ void hash_test()
     str_remove("ana");
     str_find("ana", &buffer_ptr, &cas); print_buffer_t(buffer_ptr);
 
-    for (int i = 1; i <= 2*M; ++i)
+    for (int i = 1; i <= 4*M; ++i)
     {
         if (DEBUG && i % 1000 == 0) printf("with %d\n", i);
         if (i % 10000 == 0) printf("current memory usage = %zu\n", get_allocated_memory());
@@ -147,7 +147,7 @@ void hash_test()
 }
 
 int
-read_until_delimiter(struct buffer_t *input, struct buffer_t *output, char delimiter)
+read_until_delimiter(struct buffer *input, struct buffer *output, char delimiter)
 {
     size_t output_size;
     for (output_size = 0; output_size < input->size && input->content[output_size] != delimiter; ++output_size);
@@ -159,16 +159,16 @@ read_until_delimiter(struct buffer_t *input, struct buffer_t *output, char delim
 }
 
 void
-offset_buffer(struct buffer_t *buffer, size_t offset)
+offset_buffer(struct buffer *buffer, size_t offset)
 {
     buffer->size -= offset;
     buffer->content += offset;
 }
 
 int
-handle_set(struct buffer_t *cmd_content, struct evbuffer *output)
+handle_set(struct buffer *cmd_content, struct evbuffer *output)
 {
-    struct buffer_t key, flags, exptime, bytes, value;
+    struct buffer key, flags, exptime, bytes, value;
     read_until_delimiter(cmd_content, &key, ' ');
     offset_buffer(cmd_content, key.size + 1);
     read_until_delimiter(cmd_content, &flags, ' ');
@@ -191,9 +191,9 @@ handle_set(struct buffer_t *cmd_content, struct evbuffer *output)
 }
 
 int
-handle_cas(struct buffer_t *cmd_content, struct evbuffer *output)
+handle_cas(struct buffer *cmd_content, struct evbuffer *output)
 {
-    struct buffer_t key, flags, exptime, bytes, cas, value;
+    struct buffer key, flags, exptime, bytes, cas, value;
     uint64_t cas_value = 0;
     read_until_delimiter(cmd_content, &key, ' ');
     offset_buffer(cmd_content, key.size + 1);
@@ -233,9 +233,9 @@ handle_cas(struct buffer_t *cmd_content, struct evbuffer *output)
 }
 
 int
-handle_get(struct buffer_t *cmd_content, struct evbuffer *output)
+handle_get(struct buffer *cmd_content, struct evbuffer *output)
 {
-    struct buffer_t key, *buffer_ptr;
+    struct buffer key, *buffer_ptr;
     uint64_t cas_value;
 
     key.size = cmd_content->size;
@@ -260,13 +260,13 @@ void
 readcb(struct bufferevent *bev, void *ctx)
 {
     struct evbuffer *input, *output;
-    struct buffer_t *line, *command, *cmd_content;
+    struct buffer *line, *command, *cmd_content;
     input = bufferevent_get_input(bev);
     output = bufferevent_get_output(bev);
 
-    line = memory_allocate(sizeof(struct buffer_t));
-    command = memory_allocate(sizeof(struct buffer_t));
-    cmd_content = memory_allocate(sizeof(struct buffer_t));
+    line = memory_allocate(sizeof(struct buffer));
+    command = memory_allocate(sizeof(struct buffer));
+    cmd_content = memory_allocate(sizeof(struct buffer));
     while ((line->content = evbuffer_readln(input, &line->size, EVBUFFER_EOL_CRLF_STRICT))) {
         if (read_until_delimiter(line, command, ' ') != 0)
         {
@@ -352,7 +352,7 @@ int main(int argc, char **argv)
     set_memory_limit((size_t) 200 * MEGABYTE);
     hashmap_init(1*MEGABYTE);
 
-    // hash_test(); return 0;
+    hash_test(); return 0;
 
     // We may not always want to count the IO buffers in our memory consumption but it seems fine to so by default
     event_set_mem_functions(memory_allocate, memory_reallocate, memory_free);

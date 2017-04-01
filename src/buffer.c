@@ -3,9 +3,8 @@
 #include "buffer.h"
 #include "memory.h"
 
-
 void
-buffer_clear(struct buffer_t *buffer)
+buffer_clear(struct buffer *buffer)
 {
     memory_free(buffer->content);
     /*
@@ -17,7 +16,7 @@ buffer_clear(struct buffer_t *buffer)
 }
 
 void
-buffer_copy(struct buffer_t *dest, struct buffer_t *src)
+buffer_copy(struct buffer *dest, struct buffer *src)
 {
     dest->size = src->size;
     dest->content = memory_allocate(src->size);
@@ -25,7 +24,7 @@ buffer_copy(struct buffer_t *dest, struct buffer_t *src)
 }
 
 void
-buffer_from_string(struct buffer_t *dest, char *str)
+buffer_from_string(struct buffer *dest, char *str)
 {
     dest->size = strlen(str);
     dest->content = memory_allocate(dest->size);
@@ -33,13 +32,12 @@ buffer_from_string(struct buffer_t *dest, char *str)
 }
 
 int
-buffer_compare(struct buffer_t *a, struct buffer_t *b)
+buffer_compare(struct buffer *a, struct buffer *b)
 {
     if (a->size < b->size) return -1;
     if (a->size > b->size) return 1;
     for (size_t i = 0; i < a->size; ++i)
     {
-        // the compiler optimizes these operations so we don't need to worry about iterating with pointers
         if (a->content[i] < b->content[i]) return -1;
         if (a->content[i] > b->content[i]) return 1;
     }
@@ -47,7 +45,7 @@ buffer_compare(struct buffer_t *a, struct buffer_t *b)
 }
 
 int
-buffer_compare_string(struct buffer_t *buffer, char *string)
+buffer_compare_string(struct buffer *buffer, char *string)
 {
     return strncmp(buffer->content, string, buffer->size);
 }

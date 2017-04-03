@@ -7,6 +7,9 @@ void
 set_memory_limit(size_t limit);
 
 size_t
+get_memory_limit();
+
+size_t
 get_allocated_memory();
 
 void *

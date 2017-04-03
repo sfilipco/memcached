@@ -14,6 +14,12 @@ set_memory_limit(size_t limit)
 }
 
 size_t
+get_memory_limit()
+{
+    return memory_limit;
+}
+
+size_t
 get_allocated_memory()
 {
     return allocated_memory;
@@ -26,17 +32,15 @@ memory_allocate(size_t size)
     size += sizeof(size_t);
 
     // Not the best separation of concerns but direct
-    while (allocated_memory + size > memory_limit)
-    {
-        if (hashmap_remove_lru() != 0)
-        {
+    while (allocated_memory + size > memory_limit) {
+        if (hashmap_remove_lru() != 0) {
+            hashmap_remove_lru();
             perror("could not remove lru element\n");
             return NULL;
         }
     }
     size_t *response = malloc(size);
-    if (!response)
-    {
+    if (!response) {
         perror("could not allocate memory");
         return NULL;
     }
@@ -54,22 +58,19 @@ memory_reallocate(void *ptr, size_t size)
 
     size_t *old_ptr = ((size_t *) ptr) - 1;
     size_t old_size = *old_ptr;
-    size_t difference = size - old_size;
-    while (allocated_memory + difference > memory_limit)
-    {
-        if (hashmap_remove_lru() != 0)
-        {
+    while (allocated_memory + size - old_size > memory_limit) {
+        if (hashmap_remove_lru() != 0) {
             perror("reallocate could not remove lru element\n");
             return NULL;
         }
     }
     size_t *response = realloc(old_ptr, size);
-    if (!response)
-    {
+    if (!response) {
         perror("could not reallocate memory");
         return NULL;
     }
 
+    allocated_memory = allocated_memory + size - old_size;
     *response = size;
     return response + 1;
 }

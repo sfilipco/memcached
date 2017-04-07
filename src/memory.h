@@ -1,5 +1,5 @@
-#ifndef SLKCACHED_MEMORY_H
-#define SLKCACHED_MEMORY_H
+#ifndef MEMCACHED_MEMORY_H
+#define MEMCACHED_MEMORY_H
 
 #include <memory.h>
 
@@ -21,4 +21,4 @@ memory_reallocate(void *ptr, size_t size);
 void
 memory_free(void *address);
 
-#endif //SLKCACHED_MEMORY_H
+#endif //MEMCACHED_MEMORY_H

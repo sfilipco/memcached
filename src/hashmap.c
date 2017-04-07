@@ -9,15 +9,6 @@
 // are using a linked list for collisions we handle that scenario ok
 // TODO: support resizing
 
-struct hashmap_item
-{
-    struct hashmap_item *table_next, *lru_next, *lru_prev;
-    uint64_t cas;
-    // TODO: uint32_t flags;
-    uint8_t *key, *value;
-    size_t key_size, value_size;
-};
-
 static struct hashmap_item **hash_table, *lru_sentinel;
 static uint64_t hash_table_size, cas_index, _items_in_hash;
 
@@ -33,7 +24,8 @@ hashmap_init(uint64_t _table_size)
 
     lru_sentinel = memory_allocate(sizeof(struct hashmap_item));
     lru_sentinel->key = lru_sentinel->value = NULL;
-    lru_sentinel->key_size = lru_sentinel->value_size = 0;
+    lru_sentinel->key_size = 0;
+    lru_sentinel->value_size = 0;
     lru_sentinel->cas = 0;
     lru_sentinel->table_next = 0;
     lru_sentinel->lru_prev = lru_sentinel->lru_next = lru_sentinel;
@@ -91,10 +83,9 @@ lru_remove_node_from_list(struct hashmap_item *node)
     node->lru_next->lru_prev = node->lru_prev;
 }
 
-int
-hashmap_add(uint8_t *key, size_t key_size, uint8_t *value, size_t value_size)
+static struct hashmap_item *
+add_new_item(uint8_t *key, uint16_t key_size, uint8_t *value, uint32_t value_size)
 {
-    // TODO: Check that key does not exist
     struct hashmap_item *item = memory_allocate(sizeof(struct hashmap_item));
     if (item == NULL) goto error_item;
 
@@ -119,44 +110,58 @@ hashmap_add(uint8_t *key, size_t key_size, uint8_t *value, size_t value_size)
 
     ++_items_in_hash;
 
-    return SUCCESS;
+    return item;
 
 error_value:
     memory_free(item->key);
 error_key:
     memory_free(item);
 error_item:
-    return INTERNAL_ERROR;
+    return NULL;
 }
 
-int
-hashmap_check_and_set(uint8_t *key, size_t key_size, uint8_t *value, size_t value_size, uint64_t cas)
+static int
+update_item_value(struct hashmap_item *item, uint8_t *value, uint32_t value_size)
 {
-    size_t table_index = hash(key, key_size, hash_table_size);
-    struct hashmap_item *item;
-    for (item = hash_table[table_index]; item; item = item->table_next) {
-        if (item->key_size == key_size && memcmp(item->key, key, key_size) == 0) {
-            if (item->cas == cas) {
-                uint8_t *ptr = memory_reallocate(item->value, value_size);
-                if (!ptr) return INTERNAL_ERROR;
-                item->value = ptr;
-                memcpy(item->value, value, value_size);
-                item->value_size = value_size;
-                lru_remove_node_from_list(item);
-                lru_hook_node_before_sentinel(item);
-                item->cas = ++cas_index;
-                return SUCCESS;
-            } else {
-                return ALREADY_UPDATED;
-            }
-        }
-    }
-    return NOT_FOUND;
+    uint8_t *ptr = memory_reallocate(item->value, value_size);
+
+    if (ptr == NULL) return INTERNAL_ERROR;
+    item->value = ptr;
+    memcpy(item->value, value, value_size);
+    item->value_size = value_size;
+    lru_remove_node_from_list(item);
+    lru_hook_node_before_sentinel(item);
+    item->cas = ++cas_index;
+
+    return SUCCESS;
 }
 
+int
+hashmap_insert(uint8_t *key, uint16_t key_size, uint8_t *value, uint32_t value_size, uint64_t cas,
+               struct hashmap_item **item)
+{
+    int result;
+    struct hashmap_item *it;
+    result = hashmap_find(key, key_size, &it);
+    if (result == SUCCESS) {
+        if (cas == 0 || it->cas == cas) {
+            if ((result = update_item_value(it, value, value_size)) == SUCCESS && item != NULL) {
+                *item = it;
+            }
+            return result;
+        }
+        return ALREADY_UPDATED;
+    }
+    if (cas != 0) return NOT_FOUND;
+    it = add_new_item(key, key_size, value, value_size);
+    if (it == NULL) return INTERNAL_ERROR;
+    *item = it;
+
+    return SUCCESS;
+}
 
 int
-hashmap_remove(uint8_t *key, size_t key_size)
+hashmap_remove(uint8_t *key, uint16_t key_size)
 {
     size_t table_index = hash(key, key_size, hash_table_size);
     struct hashmap_item *item = hash_table[table_index];
@@ -164,7 +169,8 @@ hashmap_remove(uint8_t *key, size_t key_size)
     if (item->key_size == key_size && memcmp(item->key, key, key_size) == 0) {
         hash_table[table_index] = item->table_next;
     } else {
-        while (item->table_next != NULL && (item->table_next->key_size != key_size || memcmp(item->table_next->key, key, key_size) != 0)) {
+        while (item->table_next != NULL &&
+                (item->table_next->key_size != key_size || memcmp(item->table_next->key, key, key_size) != 0)) {
             item = item->table_next;
         }
         if (item->table_next == NULL) return NOT_FOUND;
@@ -184,23 +190,20 @@ hashmap_remove(uint8_t *key, size_t key_size)
 }
 
 int
-hashmap_find(uint8_t *key, size_t key_size, uint8_t **value, size_t *value_size, uint64_t *cas)
+hashmap_find(uint8_t *key, uint16_t key_size, struct hashmap_item **item)
 {
     size_t table_index = hash(key, key_size, hash_table_size);
-    struct hashmap_item *item;
-    for (item = hash_table[table_index]; item; item = item->table_next) {
-        if (item->key_size == key_size && memcmp(item->key, key, key_size) == 0) {
-            lru_remove_node_from_list(item);
-            lru_hook_node_before_sentinel(item);
-            *value = item->value;
-            *value_size = item->value_size;
-            if (cas != NULL) *cas = item->cas;
+    struct hashmap_item *it;
+    for (it = hash_table[table_index]; it; it = it->table_next) {
+        if (it->key_size == key_size && memcmp(it->key, key, key_size) == 0) {
+            lru_remove_node_from_list(it);
+            lru_hook_node_before_sentinel(it);
+            if (item != NULL) *item = it;
             return SUCCESS;
         }
     }
 
-    *value = NULL;
-    *value_size = 0;
+    if (item != NULL) *item = NULL;
     return NOT_FOUND;
 }
 

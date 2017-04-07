@@ -1,5 +1,5 @@
-#ifndef SLKCACHED_HASHMAP_H
-#define SLKCACHED_HASHMAP_H
+#ifndef MEMCACHED_HASHMAP_H
+#define MEMCACHED_HASHMAP_H
 
 #include <stdint.h>
 
@@ -9,6 +9,15 @@
 
 #define INTERNAL_ERROR -1
 
+struct hashmap_item {
+    uint8_t *key, *value;
+    uint16_t key_size;
+    uint32_t value_size;
+    // TODO: uint32_t flags;
+    uint64_t cas;
+    struct hashmap_item *table_next, *lru_next, *lru_prev;
+};
+
 int
 hashmap_init(uint64_t table_size);
 
@@ -16,18 +25,16 @@ int
 hashmap_clear();
 
 int
-hashmap_add(uint8_t *key, size_t key_size, uint8_t *value, size_t value_size);
+hashmap_insert(uint8_t *key, uint16_t key_size, uint8_t *value, uint32_t value_size, uint64_t cas,
+               struct hashmap_item **item);
 
 int
-hashmap_check_and_set(uint8_t *key, size_t key_size, uint8_t *value, size_t value_size, uint64_t cas);
+hashmap_remove(uint8_t *key, uint16_t key_size);
 
 int
-hashmap_remove(uint8_t *key, size_t key_size);
-
-int
-hashmap_find(uint8_t *key, size_t key_size, uint8_t **value, size_t *value_size, uint64_t *cas);
+hashmap_find(uint8_t *key, uint16_t key_size, struct hashmap_item **item);
 
 int
 hashmap_remove_lru();
 
-#endif //SLKCACHED_HASHMAP_H
+#endif //MEMCACHED_HASHMAP_H

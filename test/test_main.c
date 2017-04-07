@@ -6,13 +6,13 @@
 #include "minunit.h"
 
 #include "memory_test.c"
-#include "string_hashmap_test.c"
+#include "hashmap_test.c"
 
 int tests_run = 0;
 
 static char * all_tests() {
-    mu_run_test_collection(string_hashmap_tests);
     mu_run_test_collection(memory_tests);
+    mu_run_test_collection(hashmap_tests);
     return 0;
 }
 
